@@ -1,0 +1,19 @@
+{
+  "name": "ambient-diorama",
+  "private": true,
+  "version": "0.1.0",
+  "description": "白噪音微缩生态小组件：低多边形赛博朋克雨夜窗台，昼夜光影、雨滴折射与可点击的立体声白噪音混音",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.5"
+  }
+}
