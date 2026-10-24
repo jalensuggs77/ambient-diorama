@@ -6,6 +6,27 @@ const rand = (a = 0, b = 1) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
+// 调度时钟：AudioWorklet 跑在音频线程里，每 50ms 给主线程发一次消息。
+// 后台标签页会把 setInterval 节流到每秒一次甚至每分钟一次，但音频线程只要在出声就一直在跑，
+// 用它来驱动调度，切到后台后雨点、风铃、鼓点也不会断。
+const CLOCK_WORKLET = `
+class DioramaClock extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.frames = 0;
+  }
+  process() {
+    this.frames += 128;
+    if (this.frames >= sampleRate * 0.05) {
+      this.frames = 0;
+      this.port.postMessage(0);
+    }
+    return true;
+  }
+}
+registerProcessor('diorama-clock', DioramaClock);
+`;
+
 function makeNoiseBuffers(ctx, seconds = 6) {
   const len = Math.floor(ctx.sampleRate * seconds);
   const make = (fill) => {
@@ -178,22 +199,49 @@ class RainTrack extends Track {
     this.loop(b.pink).connect(this.biquad('highpass', 450)).connect(this.biquad('lowpass', 8000)).connect(this.hiss).connect(this.input);
     this.body = this.gainNode(0.5);
     this.loop(b.brown).connect(this.biquad('lowpass', 420)).connect(this.body).connect(this.input);
+    // 下雪时换成呼啸的风：带通粉噪，中心频率被慢速 LFO 推来推去
+    this.wind = this.gainNode(0);
+    const windBand = this.biquad('bandpass', 360, 1.1);
+    const lfo = new OscillatorNode(this.ctx, { type: 'sine', frequency: 0.11 });
+    const lfoDepth = this.gainNode(170);
+    lfo.connect(lfoDepth).connect(windBand.frequency);
+    lfo.start();
+    this.loop(b.pink).connect(windBand).connect(this.wind).connect(this.input);
     this.intensity = 0.7;
+    this.snow = 0;
     this.nextDrop = 0;
   }
 
   setIntensity(v) {
     this.intensity = v;
-    this.hiss.gain.setTargetAtTime(0.06 + 0.5 * v, this.now, 0.4);
-    this.body.gain.setTargetAtTime(0.1 + 0.6 * v, this.now, 0.4);
+    this.applyWeather();
+  }
+
+  /** 0 = 雨，1 = 雪 */
+  setWeather(snow) {
+    this.snow = snow;
+    this.applyWeather();
+  }
+
+  applyWeather() {
+    const v = this.intensity;
+    const r = v * (1 - this.snow);
+    this.hiss.gain.setTargetAtTime(0.06 * (1 - this.snow) + 0.5 * r, this.now, 1.2);
+    this.body.gain.setTargetAtTime(0.1 + 0.6 * r + 0.1 * this.snow, this.now, 1.2);
+    this.windBase = this.snow * (0.1 + 0.35 * v);
+    this.wind.gain.setTargetAtTime(this.windBase, this.now, 1.2);
   }
 
   tick(from, to) {
-    if (!this.audible) {
+    // 风雪的阵风：偶尔把风声推高或压低
+    if (this.snow > 0 && Math.random() < (to - from) * 0.4) {
+      this.wind.gain.setTargetAtTime(this.windBase * rand(0.5, 1.6), from, rand(0.6, 1.5));
+    }
+    const rate = (3 + 45 * this.intensity) * (1 - this.snow);
+    if (!this.audible || rate < 0.1) {
       this.nextDrop = to;
       return;
     }
-    const rate = 3 + 45 * this.intensity;
     let t = Math.max(this.nextDrop, from);
     while (t < to) {
       const r = Math.random();
@@ -567,6 +615,12 @@ export class AudioEngine {
 
   async start() {
     if (this.started) return;
+    // iOS Safari 17+：声明为“播放”类音频，静音开关打开时也能出声（不支持的浏览器会忽略）
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
+    } catch {
+      /* ignore */
+    }
     const ctx = new AudioContext({ latencyHint: 'playback' });
     this.ctx = ctx;
     this.buffers = makeNoiseBuffers(ctx);
@@ -587,7 +641,21 @@ export class AudioEngine {
     };
 
     this.scheduledUntil = ctx.currentTime;
+    // setInterval 只作后备：AudioWorklet 不可用时（比如非安全上下文）还能出声
     this.timer = setInterval(() => this.schedule(), 50);
+    try {
+      const url = URL.createObjectURL(new Blob([CLOCK_WORKLET], { type: 'application/javascript' }));
+      await ctx.audioWorklet.addModule(url);
+      URL.revokeObjectURL(url);
+      this.clock = new AudioWorkletNode(ctx, 'diorama-clock', { numberOfInputs: 0, numberOfOutputs: 1 });
+      this.clock.port.onmessage = () => this.schedule();
+      // 接到静音的增益节点上，保证它一直被音频图处理
+      const silent = ctx.createGain();
+      silent.gain.value = 0;
+      this.clock.connect(silent).connect(ctx.destination);
+    } catch {
+      this.clock = null;
+    }
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && ctx.state === 'suspended') ctx.resume();
     });
@@ -595,10 +663,16 @@ export class AudioEngine {
     this.started = true;
   }
 
+  /** 提前安排多久的声音。后台时拉长，即使主线程被节流或卡顿也不会出现空档 */
+  get lookahead() {
+    if (!document.hidden) return 0.25;
+    return this.clock ? 1.5 : 4;
+  }
+
   schedule() {
     const now = this.ctx.currentTime;
     const from = Math.max(this.scheduledUntil, now);
-    const to = now + 0.25;
+    const to = now + this.lookahead;
     if (to <= from) return;
     for (const t of Object.values(this.tracks)) t.tick(from, to);
     this.scheduledUntil = to;
@@ -619,6 +693,24 @@ export class AudioEngine {
 
   setRain(v) {
     this.tracks.rain?.setIntensity(v);
+  }
+
+  setWeather(snow) {
+    this.tracks.rain?.setWeather(snow);
+  }
+
+  /** 开关灯的“咔哒”声，放在开关的位置 */
+  click(position) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + 0.01;
+    const p = new PannerNode(this.ctx, { panningModel: 'equalpower', refDistance: 1.5, rolloffFactor: 0.8 });
+    p.positionX.value = position.x;
+    p.positionY.value = position.y;
+    p.positionZ.value = position.z;
+    p.connect(this.master);
+    const rain = this.tracks.rain;
+    rain.burst(t, { filter: 'bandpass', freq: 3200, Q: 3, amp: 0.5, decay: 0.012, dest: p });
+    rain.burst(t + 0.035, { filter: 'bandpass', freq: 1800, Q: 4, amp: 0.25, decay: 0.02, dest: p });
   }
 
   thunder(delay, strength) {

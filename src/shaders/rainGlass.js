@@ -7,34 +7,48 @@ import { hashGLSL } from './common.js';
 //  - 没有水珠的地方是起雾的玻璃：用更高的 mip 层级 + 多点采样做模糊
 //  - 滑落的水珠会在身后留下清晰的轨迹和细小的残留水滴
 //  - 拖动鼠标可以在雾气上擦出清晰区域（uWipe），雾气会慢慢回来
-export function createRainGlassMaterial(sceneTexture, wipeTexture, glassSize) {
-  return new THREE.ShaderMaterial({
+//  - 夜里玻璃像半面镜子：用 Reflector 渲染的镜像纹理（tDiffuse）叠加室内倒影
+//  - 雨大时窗户底部积水往下淌；下雪时水珠换成结霜和粘在玻璃上的雪花
+// 这里导出的是 Reflector 需要的 shader 定义（它要求有 tDiffuse / color / textureMatrix 三个 uniform）
+export function createRainGlassShader() {
+  return {
+    name: 'RainGlass',
     uniforms: {
-      uScene: { value: sceneTexture },
-      uWipe: { value: wipeTexture },
+      tDiffuse: { value: null },
+      color: { value: null },
+      textureMatrix: { value: null },
+      uScene: { value: null },
+      uWipe: { value: null },
       uResolution: { value: new THREE.Vector2(1, 1) },
-      uGlassSize: { value: glassSize },
+      uGlassSize: { value: new THREE.Vector2(1, 1) },
       uTime: { value: 0 },
       uRain: { value: 0.7 },
+      uSnow: { value: 0 },
       uFog: { value: 0.6 },
       uNight: { value: 1 },
+      uReflect: { value: 0 },
       uInterior: { value: new THREE.Color(1.0, 0.55, 0.3) },
     },
     vertexShader: /* glsl */ `
+      uniform mat4 textureMatrix;
       varying vec2 vUv;
+      varying vec4 vRefl;
       void main() {
         vUv = uv;
+        vRefl = textureMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
       uniform sampler2D uScene;
       uniform sampler2D uWipe;
+      uniform sampler2D tDiffuse;
       uniform vec2 uResolution;
       uniform vec2 uGlassSize;
-      uniform float uTime, uRain, uFog, uNight;
+      uniform float uTime, uRain, uSnow, uFog, uNight, uReflect;
       uniform vec3 uInterior;
       varying vec2 vUv;
+      varying vec4 vRefl;
       ${hashGLSL}
 
       // 雨滴撞上玻璃后停留、慢慢蒸发。返回 (透镜法线 xy, 遮罩)
@@ -107,7 +121,8 @@ export function createRainGlassMaterial(sceneTexture, wipeTexture, glassSize) {
         vec2 g = vUv * uGlassSize;           // 以米为单位的玻璃坐标
         float t = uTime;
         float wipe = texture2D(uWipe, vUv).r;
-        float dens = uRain;
+        float rainK = uRain * (1.0 - uSnow);
+        float dens = rainK;
 
         vec3 s1 = staticDrops(g * 28.0, t, dens * 0.85);
         vec3 s2 = staticDrops(g * 15.0 + 11.3, t * 0.9, dens * 0.55);
@@ -118,8 +133,44 @@ export function createRainGlassMaterial(sceneTexture, wipeTexture, glassSize) {
         float staticKeep = (1.0 - trails) * (1.0 - wipe * 0.8);
         vec2 n = (s1.xy + s2.xy) * staticKeep + d1.xy + d2.xy;
         float dropMask = clamp(max(max(s1.z, s2.z) * staticKeep, max(d1.z, d2.z)), 0.0, 1.0);
-        float clear = clamp(dropMask + trails + wipe, 0.0, 1.0);
-        float fog = uFog * (1.0 - clear);
+        // ---- 窗底积水：雨大时水在窗框上积起一条，水面起伏并朝一侧流走 ----
+        // 玻璃下面 0.38 米被窗前矮几挡住了，水线从矮几台面的高度往上涨
+        float poolH = smoothstep(0.45, 1.0, rainK) * 0.075;
+        float hasPool = step(0.001, poolH);
+        float surf = 0.38 + poolH + (sin(g.x * 9.0 - t * 2.3) * 0.004 + sin(g.x * 23.0 + t * 3.7) * 0.0025) * hasPool;
+        float under = hasPool * smoothstep(surf + 0.002, surf - 0.002, g.y);
+        float meniscus = hasPool * smoothstep(0.006, 0.0, abs(g.y - surf));
+        vec2 flowN = vec2(sin(g.x * 18.0 - t * 4.0 + g.y * 30.0), 0.6 * cos(g.x * 13.0 - t * 3.0 + g.y * 20.0)) * 0.16;
+        n = mix(n, flowN, under);
+        dropMask = max(dropMask, under * 0.35);
+        // 积水上方有几道水往下淌汇入
+        float rivX = fract(g.x * 1.7 + 0.3);
+        float rivulet = hasPool * smoothstep(0.03, 0.0, abs(rivX - 0.5 - 0.02 * sin(g.y * 30.0))) * step(0.6, hash11(floor(g.x * 1.7 + 0.3)))
+                      * smoothstep(surf + 0.25, surf, g.y) * step(surf, g.y);
+        n += vec2(sign(rivX - 0.5) * 0.4, sin(g.y * 80.0 + t * 12.0) * 0.2) * rivulet;
+        dropMask = max(dropMask, rivulet * 0.5);
+
+        // ---- 下雪：边角和窗棂旁结出冰花 ----
+        float frost = 0.0;
+        if (uSnow > 0.001) {
+          float edgeD = min(min(vUv.x, 1.0 - vUv.x) * uGlassSize.x, min(vUv.y, 1.0 - vUv.y) * uGlassSize.y);
+          float mull = min(abs(vUv.x - 0.27), abs(vUv.x - 0.73)) * uGlassSize.x;
+          edgeD = min(edgeD, mull * 1.4);
+          edgeD -= max(0.0, 0.35 - g.y) * 0.5; // 底部结得更厚
+          float warp = fbm(g * 2.5);
+          float grow = (0.1 + 0.4 * (0.4 + 0.6 * uRain)) * uSnow;
+          float base = smoothstep(grow, grow * 0.2, edgeD + (warp - 0.5) * 0.3);
+          float c1 = fbm(g * 16.0 + warp * 3.0);
+          float ridges = pow(1.0 - abs(c1 * 2.0 - 1.0), 6.0);
+          frost = clamp(base * (0.6 + 0.4 * ridges) + ridges * base * 0.4, 0.0, 1.0) * uSnow;
+          frost *= 1.0 - wipe * 0.9;
+        }
+        // 粘在玻璃上的雪花，会慢慢化掉
+        vec3 flakes = staticDrops(g * 24.0 + 3.7, t * 0.35, uSnow * uRain * 0.45);
+        float flake = smoothstep(0.2, 0.6, flakes.z) * uSnow;
+
+        float clear = clamp(dropMask + trails + wipe + under, 0.0, 1.0);
+        float fog = max(uFog * (1.0 - clear), frost * 0.8);
 
         vec2 suv = gl_FragCoord.xy / uResolution;
         vec2 aspect = vec2(uResolution.y / uResolution.x, 1.0);
@@ -151,8 +202,24 @@ export function createRainGlassMaterial(sceneTexture, wipeTexture, glassSize) {
         float spec = smoothstep(0.32, 0.0, length(nn - vec2(-0.35, 0.4))) * dropMask;
         col += (ambient * 1.5 + uInterior * 0.12 * uNight + 0.04) * spec;
 
-        // 夜里玻璃上淡淡映出室内的暖光
-        col += uInterior * 0.018 * uNight * (1.0 - dropMask);
+        // 积水：略暗、带一道亮的水面线
+        col *= mix(1.0, 0.85, under);
+        col += (ambient * 1.4 + uInterior * 0.08 * uNight + 0.04) * meniscus * 0.8;
+
+        // 冰花：发白的散射 + 细碎的闪光
+        vec3 frostCol = vec3(0.78, 0.86, 1.0) * (ambient * 1.3 + 0.06) + uInterior * 0.07 * uNight;
+        col = mix(col, frostCol, frost * 0.75);
+        vec2 sc = floor(g * 90.0);
+        float sparkle = step(0.985, hash12(sc)) * (0.5 + 0.5 * sin(t * 3.0 + hash12(sc + 1.7) * 50.0));
+        col += sparkle * frost * (ambient * 2.0 + 0.12);
+        col = mix(col, vec3(0.85, 0.9, 1.0) * (ambient * 1.6 + 0.12) + uInterior * 0.1 * uNight, flake * 0.85);
+
+        // 夜里的室内倒影：镜像相机渲染的纹理，被水珠扭曲、被雾和霜冲淡
+        vec4 rp = vRefl;
+        rp.xy += n * 0.025 * rp.w;
+        vec3 refl = texture2DProj(tDiffuse, rp).rgb;
+        col += refl * uReflect * (1.0 - fog * 0.8) * (1.0 - flake);
+        col += uInterior * 0.01 * uNight * (1.0 - dropMask);
         col *= vec3(0.96, 0.99, 1.02);
 
         gl_FragColor = vec4(col, 1.0);
@@ -160,5 +227,5 @@ export function createRainGlassMaterial(sceneTexture, wipeTexture, glassSize) {
         #include <colorspace_fragment>
       }
     `,
-  });
+  };
 }

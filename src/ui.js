@@ -45,19 +45,33 @@ export class UI {
               <select id="speed"></select>
             </label>
             <label class="field">
-              <span>雨量</span>
+              <span>天气</span>
+              <select id="weather">
+                <option value="rain">🌧️ 雨夜</option>
+                <option value="snow">❄️ 雪夜</option>
+              </select>
+            </label>
+            <label class="field">
+              <span id="rain-label">雨量</span>
               <input type="range" id="rain" min="0" max="1" step="0.01" />
             </label>
             <label class="field">
               <span>起雾</span>
               <input type="range" id="fog" min="0" max="1" step="0.01" />
             </label>
+            <div class="field">
+              <span>灯光</span>
+              <button class="chip light-toggle" id="light"></button>
+            </div>
             <label class="field">
               <span>总音量</span>
               <input type="range" id="master" min="0" max="1" step="0.01" />
             </label>
           </section>
-          <div class="hint">🖱️ 移动鼠标看看四周 · 滚轮缩放 · 拖动玻璃擦雾</div>
+          <div class="hint">
+            <span class="only-kbd">🖱️ 移动鼠标看看四周 · 滚轮缩放 · 拖动玻璃擦雾<br/>💡 <kbd>L</kbd> 开关房间灯<br/>🚶 左下角「漫游模式」可以用键盘在房间里走动</span>
+            <span class="only-touch">👆 左右拖动看看四周 · 轻点物体开关声音 · 在玻璃上拖动擦雾<br/>🚶 左下角「漫游模式」用摇杆在房间里走动，横屏更舒服</span>
+          </div>
         </div>
       </aside>
     `;
@@ -102,6 +116,8 @@ export class UI {
     speed.addEventListener('change', () => this.h.onSpeed(speed.value));
     this.$('time').addEventListener('input', (e) => this.h.onTime(parseFloat(e.target.value)));
     this.$('rain').addEventListener('input', (e) => this.h.onRain(parseFloat(e.target.value)));
+    this.$('weather').addEventListener('change', (e) => this.h.onWeather(e.target.value));
+    this.$('light').addEventListener('click', () => this.h.onLight());
     this.$('fog').addEventListener('input', (e) => this.h.onFog(parseFloat(e.target.value)));
     this.$('master').addEventListener('input', (e) => this.h.onMaster(parseFloat(e.target.value)));
     this.$('collapse').addEventListener('click', () => this.$('panel').classList.toggle('collapsed'));
@@ -128,6 +144,15 @@ export class UI {
       r.row.classList.toggle('on', ts.on);
       r.slider.value = ts.vol;
     }
+    // 下雪时“雨声”这条音轨变成风雪声
+    const snow = s.weather === 'snow';
+    this.rows.rain.btn.querySelector('.name').textContent = snow ? '风雪' : '雨声';
+    this.rows.rain.btn.querySelector('.icon').textContent = snow ? '❄️' : '🌧️';
+    this.$('rain-label').textContent = snow ? '雪量' : '雨量';
+    this.$('weather').value = s.weather;
+    const light = this.$('light');
+    light.textContent = s.light ? '💡 关灯' : '💡 开灯';
+    light.classList.toggle('on', s.light);
     this.$('time').value = s.hours;
     this.$('speed').value = s.speed;
     this.$('rain').value = s.rain;

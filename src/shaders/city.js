@@ -13,6 +13,7 @@ export function createCityMaterial() {
       uNight: { value: 0 },
       uNeon: { value: 0 },
       uRain: { value: 0.5 },
+      uSnow: { value: 0 },
       uTime: { value: 0 },
       uLightning: { value: 0 },
     },
@@ -36,7 +37,7 @@ export function createCityMaterial() {
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 uSunDir, uKeyColor, uSkyTop, uHorizon;
-      uniform float uKeyIntensity, uNight, uNeon, uRain, uTime, uLightning;
+      uniform float uKeyIntensity, uNight, uNeon, uRain, uSnow, uTime, uLightning;
       varying vec3 vWorld;
       varying vec3 vBase;
       varying vec3 vSize;
@@ -59,6 +60,8 @@ export function createCityMaterial() {
         vec3 wall = mix(vec3(0.05, 0.055, 0.075), vec3(0.13, 0.13, 0.15), seed);
         wall = mix(wall, wall * vec3(1.1, 0.95, 0.9), step(0.7, seed2));
         float roof = step(0.6, n.y);
+        // 下雪时楼顶积起一层白雪
+        wall = mix(wall, vec3(0.75, 0.78, 0.85), roof * uSnow);
 
         // 窗户网格
         vec2 fuv = abs(n.x) > 0.5 ? vec2(vWorld.z, localY) : vec2(vWorld.x, localY);

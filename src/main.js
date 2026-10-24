@@ -6,6 +6,8 @@ import { Room, WINDOW } from './scene/room.js';
 import { AudioEngine } from './audio/engine.js';
 import { UI } from './ui.js';
 import { TRACKS, SPEEDS } from './tracks.js';
+import { Explorer } from './explore/explorer.js';
+import { TouchControls } from './explore/touchControls.js';
 
 const params = new URLSearchParams(location.search);
 const widgetMode = params.has('widget');
@@ -20,6 +22,8 @@ const defaults = {
   rain: 0.7,
   fog: 0.55,
   master: 0.8,
+  weather: 'rain',
+  light: false,
   tracks: Object.fromEntries(TRACKS.map((t) => [t.id, { on: t.id === 'rain' || t.id === 'fire', vol: 0.7 }])),
 };
 function loadState() {
@@ -89,6 +93,13 @@ audio.on('crackle', (n) => room.spawnSparks(n));
 audio.on('beat', (s) => room.radioBeat(s));
 
 // ---------- 交互逻辑 ----------
+/** 音轨的显示名：下雪时“雨声”变成“风雪” */
+function trackInfo(id) {
+  const t = TRACKS.find((x) => x.id === id);
+  if (id === 'rain' && state.weather === 'snow') return { ...t, name: '风雪', icon: '❄️', desc: '呼啸的风和落雪声' };
+  return t;
+}
+
 function applyTrack(id) {
   const ts = state.tracks[id];
   room.setActive(id, ts.on);
@@ -104,6 +115,7 @@ async function startAudio() {
   audio.setPositions(sourcePositions);
   audio.setMaster(state.master);
   audio.setRain(state.rain);
+  audio.setWeather(state.weather === 'snow' ? 1 : 0);
   TRACKS.forEach((t) => applyTrack(t.id));
   ui.hideOverlay();
 }
@@ -114,6 +126,21 @@ function toggleTrack(id) {
   ui.sync();
   saveState();
   startAudio();
+}
+
+function toggleLight() {
+  state.light = !state.light;
+  room.setLight(state.light);
+  if (audio.started) audio.click(room.switchPosition);
+  ui.sync();
+  saveState();
+}
+
+/** 点击 / 按 E 作用在场景物体上：开关音轨，或者开关灯；点猫时它会伸个懒腰 */
+function activate(id) {
+  if (id === 'light') return toggleLight();
+  if (id === 'cat') room.catStretch();
+  toggleTrack(id);
 }
 
 const ui = new UI(document.getElementById('ui'), state, {
@@ -160,6 +187,13 @@ const ui = new UI(document.getElementById('ui'), state, {
     state.fog = v;
     saveState();
   },
+  onWeather(w) {
+    state.weather = w;
+    if (audio.started) audio.setWeather(w === 'snow' ? 1 : 0);
+    ui.sync();
+    saveState();
+  },
+  onLight: toggleLight,
   onMaster(v) {
     state.master = v;
     audio.setMaster(v);
@@ -167,8 +201,40 @@ const ui = new UI(document.getElementById('ui'), state, {
   },
 });
 TRACKS.forEach((t) => room.setActive(t.id, state.tracks[t.id].on));
-if (widgetMode || window.innerWidth < 720) ui.collapse(true);
+room.setLight(state.light);
+room.lightLevel = state.light ? 1 : 0;
+room.lightAge = 10;
+// 手机竖屏（窄）或横屏（矮）时面板默认收起
+if (widgetMode || window.innerWidth < 720 || window.innerHeight < 500) ui.collapse(true);
 document.getElementById('collapse').addEventListener('click', () => requestAnimationFrame(resize));
+
+// ---------- 漫游模式：键盘操控小人在房间里走动 ----------
+const explorer = new Explorer({
+  canvas,
+  camera,
+  room,
+  root: document.getElementById('ui'),
+  describe(id) {
+    if (id === 'light') return state.light ? '💡 关灯' : '💡 开灯';
+    const t = trackInfo(id);
+    return `${state.tracks[id].on ? '关闭' : '开启'} ${t.icon} ${t.name}`;
+  },
+  onInteract: activate,
+  onEnter() {
+    startAudio();
+    ui.hideOverlay();
+    ui.collapse(true);
+    ui.showTooltip(0, 0, '');
+    resize();
+  },
+  onExit() {
+    room.setHover(null);
+    resize();
+  },
+});
+// 触屏设备：虚拟摇杆 + 动作按钮
+document.body.classList.toggle('touch', explorer.touchMode);
+if (explorer.touchMode) new TouchControls(explorer, document.getElementById('ui'), { onLight: toggleLight });
 
 // ---------- 指针：视差、悬停、点击、擦玻璃 ----------
 const raycaster = new THREE.Raycaster();
@@ -182,7 +248,7 @@ function pick(clientX, clientY) {
   const r = canvas.getBoundingClientRect();
   pointer.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObjects(room.scene.children, true);
+  const hits = raycaster.intersectObjects(explorer.pickables, true);
   for (const h of hits) {
     if (h.object.isPoints || (h.object.isMesh && h.object.material.blending === THREE.AdditiveBlending)) continue;
     let o = h.object;
@@ -193,7 +259,8 @@ function pick(clientX, clientY) {
 }
 
 function tooltipFor(id) {
-  const t = TRACKS.find((x) => x.id === id);
+  if (id === 'light') return `<b>💡 房间灯</b> · ${state.light ? '开着' : '关着'}<br><small>点击${state.light ? '关灯' : '开灯'}（快捷键 L）</small>`;
+  const t = trackInfo(id);
   if (!t) return '';
   const on = state.tracks[id].on;
   const extra = id === 'rain' ? '<br><small>拖动可擦去玻璃上的雾气</small>' : '';
@@ -201,6 +268,7 @@ function tooltipFor(id) {
 }
 
 canvas.addEventListener('pointermove', (e) => {
+  if (explorer.active) return;
   const r = canvas.getBoundingClientRect();
   parallax.tx = ((e.clientX - r.left) / r.width) * 2 - 1;
   parallax.ty = ((e.clientY - r.top) / r.height) * 2 - 1;
@@ -222,6 +290,7 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 canvas.addEventListener('pointerdown', (e) => {
+  if (explorer.active) return;
   const { id, hit } = pick(e.clientX, e.clientY);
   down = { x: e.clientX, y: e.clientY, id, wiping: false, lastUv: hit?.uv?.clone() };
   canvas.setPointerCapture(e.pointerId);
@@ -230,13 +299,14 @@ canvas.addEventListener('pointerdown', (e) => {
 canvas.addEventListener('pointerup', (e) => {
   if (down && !down.wiping && down.id && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 8) {
     const { id } = pick(e.clientX, e.clientY);
-    if (id === down.id) toggleTrack(id);
+    if (id === down.id) activate(id);
     ui.showTooltip(e.clientX, e.clientY, tooltipFor(id));
   }
   down = null;
 });
 
 canvas.addEventListener('pointerleave', (e) => {
+  if (explorer.active) return;
   room.setHover(null);
   ui.showTooltip(0, 0, '');
   // 触屏上松手后保持当前视角，方便看清两侧的壁炉和猫
@@ -246,10 +316,18 @@ canvas.addEventListener('pointerleave', (e) => {
   }
 });
 
+// L：开关房间灯（在面板的输入框里时不响应）
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyL' || e.repeat || e.metaKey || e.ctrlKey) return;
+  if (e.target instanceof HTMLElement && e.target.matches('input, select, textarea')) return;
+  toggleLight();
+});
+
 canvas.addEventListener(
   'wheel',
   (e) => {
     e.preventDefault();
+    if (explorer.active) return;
     parallax.tzoom = THREE.MathUtils.clamp(parallax.tzoom * Math.exp(e.deltaY * 0.001), 0.55, 1.15);
   },
   { passive: false },
@@ -263,6 +341,17 @@ function resize() {
   renderer.setSize(w, h, false);
   renderer.getDrawingBufferSize(bufferSize);
   outsideRT.setSize(bufferSize.x, bufferSize.y);
+  // 倒影用半分辨率就够了：玻璃上的倒影本来就是模糊的
+  room.glass.getRenderTarget().setSize(Math.ceil(bufferSize.x / 2), Math.ceil(bufferSize.y / 2));
+  outdoor.snowfall.material.uniforms.uViewportH.value = bufferSize.y;
+  room.sunbeams.setViewportHeight(bufferSize.y);
+  if (explorer.active) {
+    // 漫游时全屏取景，视角由 Explorer 控制
+    camera.clearViewOffset();
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    return;
+  }
   // 面板展开时，把画面构图中心移到面板左侧的空白区域
   const panel = document.getElementById('panel');
   const reserve = w > 720 && panel && !panel.classList.contains('collapsed') ? panel.offsetWidth + 24 : 0;
@@ -282,11 +371,15 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
+// ---------- 天气：雨 ↔ 雪 平滑过渡 ----------
+let snowK = state.weather === 'snow' ? 1 : 0;
+
 // ---------- 闪电 ----------
 const flashes = [];
 let forceFlash = false;
 function maybeLightning(t, dt) {
-  const chance = Math.max(0, state.rain - 0.55) * 0.14 * dt;
+  // 下雪天不打雷
+  const chance = Math.max(0, state.rain - 0.55) * 0.14 * dt * (1 - snowK);
   if (Math.random() < chance || forceFlash) {
     forceFlash = false;
     const amp = 0.6 + Math.random() * 0.8;
@@ -326,26 +419,33 @@ function frame() {
   env.hours = state.hours;
   env.rain = state.rain;
   env.update();
+  snowK += ((state.weather === 'snow' ? 1 : 0) - snowK) * Math.min(1, dt * 0.6);
   const lightning = maybeLightning(time, dt);
 
-  // 镜头随鼠标轻微视差
-  parallax.x += (parallax.tx - parallax.x) * Math.min(1, dt * 2.5);
-  parallax.y += (parallax.ty - parallax.y) * Math.min(1, dt * 2.5);
-  parallax.zoom += (parallax.tzoom - parallax.zoom) * Math.min(1, dt * 4);
-  const panX = parallax.x * parallax.pan;
-  camera.position.set(
-    camBase.x + panX + parallax.x * 0.45 + Math.sin(time * 0.11) * 0.03,
-    camBase.y - parallax.y * 0.2 + Math.sin(time * 0.17) * 0.015,
-    camBase.z,
-  );
-  lookAt.copy(lookTarget).x += panX;
-  camera.position.lerp(lookAt, 1 - parallax.zoom);
-  camera.lookAt(lookAt);
-  camera.updateMatrixWorld();
+  if (explorer.active) {
+    room.setHover(explorer.update(dt, time));
+  } else {
+    // 镜头随鼠标轻微视差
+    parallax.x += (parallax.tx - parallax.x) * Math.min(1, dt * 2.5);
+    parallax.y += (parallax.ty - parallax.y) * Math.min(1, dt * 2.5);
+    parallax.zoom += (parallax.tzoom - parallax.zoom) * Math.min(1, dt * 4);
+    const panX = parallax.x * parallax.pan;
+    camera.position.set(
+      camBase.x + panX + parallax.x * 0.45 + Math.sin(time * 0.11) * 0.03,
+      camBase.y - parallax.y * 0.2 + Math.sin(time * 0.17) * 0.015,
+      camBase.z,
+    );
+    lookAt.copy(lookTarget).x += panX;
+    camera.position.lerp(lookAt, 1 - parallax.zoom);
+    camera.lookAt(lookAt);
+    camera.updateMatrixWorld();
+  }
 
-  outdoor.update(time, dt, env, state.rain, lightning);
+  outdoor.update(time, dt, env, state.rain, lightning, snowK);
   room.update(time, dt, env, {
     rain: state.rain,
+    snow: snowK,
+    camera,
     fog: state.fog,
     lightning,
     width: bufferSize.x,
@@ -369,4 +469,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // 方便调试
-window.__diorama = { state, env, room, outdoor, audio, renderer, camera, flash: () => (forceFlash = true) };
+window.__diorama = { state, env, room, outdoor, audio, renderer, camera, explorer, flash: () => (forceFlash = true), snowNow: (v) => (snowK = v) };

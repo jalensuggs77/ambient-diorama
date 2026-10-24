@@ -231,6 +231,15 @@ section {
   background: rgba(255, 255, 255, 0.04);
   cursor: pointer;
 }
+.chip.on {
+  border-color: rgba(255, 210, 120, 0.7);
+  color: #ffe2a8;
+  background: rgba(255, 200, 100, 0.12);
+  box-shadow: 0 0 14px rgba(255, 200, 100, 0.2);
+}
+.light-toggle {
+  justify-self: start;
+}
 .chip:hover {
   border-color: var(--accent2);
   color: var(--accent2);
@@ -327,6 +336,162 @@ input[type='range']::-moz-range-thumb {
   color: var(--muted);
 }
 
+/* ---------- 漫游模式 ---------- */
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 1px 6px;
+  margin: 0 2px;
+  font: 600 11px ui-monospace, 'SF Mono', Menlo, monospace;
+  text-align: center;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+}
+.explore-enter {
+  position: fixed;
+  left: calc(16px + env(safe-area-inset-left));
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 11;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(41, 230, 255, 0.45);
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 0 20px rgba(41, 230, 255, 0.18);
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.explore-enter:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 30px rgba(41, 230, 255, 0.35);
+}
+.explore-hud,
+.explore-pause {
+  display: none;
+}
+body.exploring .explore-enter {
+  display: none;
+}
+body.exploring .explore-hud {
+  display: block;
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9;
+}
+.crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35), 0 0 10px rgba(41, 230, 255, 0.8);
+}
+.explore-prompt {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 28px);
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+  border-radius: 10px;
+  background: rgba(10, 8, 20, 0.8);
+  border: 1px solid rgba(41, 230, 255, 0.35);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.explore-prompt.show {
+  opacity: 1;
+}
+.explore-view {
+  position: absolute;
+  left: calc(16px + env(safe-area-inset-left));
+  top: calc(16px + env(safe-area-inset-top));
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  color: var(--accent2);
+  text-shadow: 0 0 10px rgba(41, 230, 255, 0.6);
+}
+.explore-keys {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 14px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--muted);
+  border-radius: 12px;
+  background: rgba(10, 8, 20, 0.55);
+  backdrop-filter: blur(8px);
+}
+body.explore-paused .explore-pause {
+  display: grid;
+  place-items: center;
+  position: fixed;
+  inset: 0;
+  z-index: 18;
+  padding: 16px;
+  background: rgba(7, 6, 13, 0.6);
+  backdrop-filter: blur(4px);
+}
+body.explore-paused .explore-hud {
+  display: none;
+}
+.explore-pause-card {
+  max-width: 440px;
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+  padding: 24px 26px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  text-align: center;
+}
+.explore-pause-card h2 {
+  margin: 8px 0 14px;
+  letter-spacing: 0.1em;
+}
+.explore-pause-card ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 2.1;
+  color: var(--muted);
+}
+.explore-pause-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.btn-ghost {
+  font: inherit;
+  color: var(--text);
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
 /* ---------- 小组件模式（?widget，适合 iframe 嵌入） ---------- */
 body.widget .overlay h1 {
   font-size: 28px;
@@ -339,13 +504,244 @@ body.widget .overlay p {
 @media (max-width: 720px) {
   .panel {
     top: auto;
-    bottom: 12px;
-    right: 12px;
-    left: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    right: calc(12px + env(safe-area-inset-right));
+    left: calc(12px + env(safe-area-inset-left));
     width: auto;
-    max-height: 60%;
+    max-height: 62%;
   }
   .panel.collapsed {
     left: auto;
   }
+  /* 面板展开成底部抽屉时，先把漫游按钮让开 */
+  body:has(.panel:not(.collapsed)) .explore-enter {
+    display: none;
+  }
+  .overlay p {
+    font-size: 14px;
+  }
+}
+
+/* 手机横屏：高度很矮，面板贴右上角、变窄，内容可滚动 */
+@media (max-height: 500px) and (min-width: 721px) {
+  .panel {
+    top: calc(8px + env(safe-area-inset-top));
+    right: calc(8px + env(safe-area-inset-right));
+    width: 280px;
+    max-height: calc(100% - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+  .panel-head {
+    padding: 8px 12px;
+  }
+  section {
+    padding: 6px 0 2px;
+  }
+  .track {
+    margin-bottom: 4px;
+  }
+  .toggle {
+    padding: 5px 10px;
+  }
+  .overlay h1 {
+    margin: 4px 0 6px;
+    font-size: 34px;
+  }
+  .overlay p {
+    margin-bottom: 14px;
+    line-height: 1.6;
+  }
+}
+
+/* ---------- 触屏 ---------- */
+body {
+  -webkit-tap-highlight-color: transparent;
+}
+body.touch {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+button {
+  touch-action: manipulation;
+}
+.only-touch {
+  display: none;
+}
+body.touch .only-touch {
+  display: block;
+}
+body.touch .only-kbd {
+  display: none !important;
+}
+
+.touch-ui {
+  display: none;
+}
+body.touch.exploring:not(.explore-paused) .touch-ui {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+}
+/* 摇杆区域：左下一大块，按在哪里摇杆就出现在哪里 */
+.stick-zone {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: min(48vw, 360px);
+  height: min(58vh, 360px);
+  pointer-events: auto;
+  touch-action: none;
+}
+.stick-base {
+  position: absolute;
+  left: calc(86px + env(safe-area-inset-left));
+  top: calc(100% - 96px - env(safe-area-inset-bottom));
+  width: 124px;
+  height: 124px;
+  margin: -62px 0 0 -62px;
+  border-radius: 50%;
+  background: rgba(10, 8, 20, 0.35);
+  border: 1.5px solid rgba(41, 230, 255, 0.4);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0.7;
+  transition: opacity 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.stick-base.held {
+  opacity: 1;
+}
+.stick-base.running {
+  border-color: var(--accent);
+  box-shadow: 0 0 22px rgba(255, 63, 180, 0.45);
+}
+.stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  margin: -27px 0 0 -27px;
+  border-radius: 50%;
+  background: rgba(236, 232, 255, 0.88);
+  box-shadow: 0 0 16px rgba(41, 230, 255, 0.6);
+}
+/* 右下角动作按钮：大号“跳”在拇指最顺手的位置，其余围成一圈 */
+.touch-actions {
+  position: absolute;
+  right: calc(14px + env(safe-area-inset-right));
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  width: 220px;
+  height: 170px;
+  pointer-events: none;
+}
+.tbtn {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  font: inherit;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text);
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  background: rgba(10, 8, 20, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: auto;
+  touch-action: none;
+  transition: transform 0.08s, border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+.tbtn.pressed {
+  transform: scale(0.9);
+  background: rgba(255, 255, 255, 0.16);
+}
+.tbtn.ready {
+  border-color: var(--accent2);
+  box-shadow: 0 0 18px rgba(41, 230, 255, 0.5);
+}
+.tbtn[data-act='jump'] {
+  right: 0;
+  bottom: 0;
+}
+.tbtn-big {
+  width: 78px;
+  height: 78px;
+  font-size: 30px;
+  border-color: rgba(255, 63, 180, 0.5);
+}
+.tbtn[data-act='interact'] {
+  right: 92px;
+  bottom: 6px;
+  width: 62px;
+  height: 62px;
+  font-size: 26px;
+}
+.tbtn[data-act='seat'] {
+  right: 76px;
+  bottom: 86px;
+}
+.tbtn[data-act='view'] {
+  right: 6px;
+  bottom: 96px;
+}
+.tbtn[data-act='light'] {
+  right: 146px;
+  bottom: 82px;
+  width: 48px;
+  height: 48px;
+  font-size: 20px;
+}
+.tbtn-pause {
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+}
+/* 竖屏漫游时提示一下横过来更舒服，几秒后自动消失 */
+.rotate-hint {
+  position: absolute;
+  left: 50%;
+  top: calc(56px + env(safe-area-inset-top));
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+  border-radius: 999px;
+  background: rgba(10, 8, 20, 0.7);
+  border: 1px solid rgba(41, 230, 255, 0.3);
+  opacity: 0;
+  pointer-events: none;
+}
+@media (orientation: portrait) {
+  body.touch.exploring .rotate-hint {
+    animation: hint-fade 5s ease forwards;
+  }
+}
+@keyframes hint-fade {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  10%,
+  75% {
+    opacity: 1;
+  }
+}
+.explore-prompt .sep {
+  margin: 0 10px;
+  opacity: 0.4;
+}
+/* 漫游时收起混音面板，暂停时再拿出来 */
+body.exploring .panel {
+  display: none;
+}
+body.explore-paused .panel {
+  display: flex;
+  z-index: 19;
 }

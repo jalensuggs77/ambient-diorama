@@ -3,8 +3,9 @@ import { createSkyMaterial } from '../shaders/sky.js';
 import { createCityMaterial } from '../shaders/city.js';
 import { createRainStreaks } from '../shaders/rainStreaks.js';
 import { createStreetMaterial } from '../shaders/street.js';
+import { createSnowfall } from '../shaders/snowfall.js';
 
-// 窗外世界：天空、赛博朋克城市、霓虹招牌、飞行汽车与雨丝。
+// 窗外世界：天空、赛博朋克城市、霓虹招牌、飞行汽车与雨丝（或雪花）。
 // 它被渲染到离屏纹理中，再由窗玻璃着色器折射显示。
 
 function mulberry32(a) {
@@ -177,6 +178,8 @@ export class Outdoor {
 
     this.rain = createRainStreaks();
     this.scene.add(this.rain);
+    this.snowfall = createSnowfall();
+    this.scene.add(this.snowfall);
 
     this._m = new THREE.Matrix4();
     this._q = new THREE.Quaternion();
@@ -184,7 +187,9 @@ export class Outdoor {
     this._p = new THREE.Vector3();
   }
 
-  update(t, dt, env, rain, lightning) {
+  /** snow: 0 = 下雨，1 = 下雪（切换时平滑过渡） */
+  update(t, dt, env, precip, lightning, snow = 0) {
+    const rain = precip * (1 - snow);
     const sky = this.skyMat.uniforms;
     sky.uTop.value.copy(env.skyTop);
     sky.uHorizon.value.copy(env.skyHorizon);
@@ -192,7 +197,7 @@ export class Outdoor {
     sky.uMoonDir.value.copy(env.moonDir);
     sky.uSunColor.value.copy(env.sunColor);
     sky.uTime.value = t;
-    sky.uRain.value = rain;
+    sky.uRain.value = precip;
     sky.uNight.value = env.night;
     sky.uDay.value = env.day;
     sky.uTwilight.value = env.twilight;
@@ -206,7 +211,8 @@ export class Outdoor {
     city.uHorizon.value.copy(env.skyHorizon);
     city.uNight.value = env.night;
     city.uNeon.value = env.neon;
-    city.uRain.value = rain;
+    city.uRain.value = Math.max(rain, precip * snow * 0.6);
+    city.uSnow.value = snow;
     city.uTime.value = t;
     city.uLightning.value = lightning;
 
@@ -219,7 +225,7 @@ export class Outdoor {
     st.uLightning.value = lightning;
 
     this.scene.fog.color.copy(env.skyHorizon);
-    this.scene.fog.density = 0.006 + rain * 0.012;
+    this.scene.fog.density = 0.006 + precip * 0.012;
 
     // 霓虹招牌闪烁，偶尔故障
     for (const s of this.signs) {
@@ -250,5 +256,14 @@ export class Outdoor {
     r.uColor.value.copy(env.skyHorizon).multiplyScalar(0.9).addScalar(0.08 + lightning * 0.8);
     r.uColor.value.r += 0.12 * env.neon;
     r.uColor.value.b += 0.1 * env.neon;
+
+    // 雪花：被天光、霓虹和闪电照亮
+    const sn = this.snowfall.material.uniforms;
+    sn.uTime.value = t;
+    sn.uAmount.value = precip * snow;
+    sn.uColor.value.copy(env.skyHorizon).multiplyScalar(0.7).addScalar(0.32 + env.day * 0.35);
+    sn.uColor.value.r += 0.15 * env.neon * env.night;
+    sn.uColor.value.b += 0.18 * env.neon * env.night;
+    this.snowfall.visible = snow > 0.01;
   }
 }
