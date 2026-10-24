@@ -7,13 +7,16 @@ RectAreaLightUniformsLib.init();
 // 室内：低多边形的赛博朋克公寓窗台角落。
 // 可点击物体：窗玻璃（雨声）、壁炉、收音机、风铃、猫咪。
 
+// 落地窗：从地板一直到天花板
 export const WINDOW = {
-  x0: -1.3,
-  x1: 1.5,
-  y0: 0.95,
-  y1: 2.85,
+  x0: -1.72,
+  x1: 1.76,
+  y0: 0.04,
+  y1: 3.2,
   glassZ: -0.15,
 };
+// 窗前矮几的台面高度（收音机、盆栽等摆在上面）
+export const BENCH_Y = 0.42;
 WINDOW.cx = (WINDOW.x0 + WINDOW.x1) / 2;
 WINDOW.cy = (WINDOW.y0 + WINDOW.y1) / 2;
 WINDOW.w = WINDOW.x1 - WINDOW.x0;
@@ -109,7 +112,8 @@ export class Room {
     // 踢脚线
     const trim = mat(0x171a26);
     slab(trim, s, -3.6, 0, 0, -3.4, 0.12, 0.03);
-    slab(trim, s, -1.9, 0, 0, 1.85, 0.12, 0.03);
+    slab(trim, s, -1.9, 0, 0, x0, 0.12, 0.03);
+    slab(trim, s, x1, 0, 0, 1.85, 0.12, 0.03);
   }
 
   buildWindow(sceneTexture) {
@@ -142,13 +146,18 @@ export class Room {
     slab(frame, s, x0, y1 - t, fz0, x1, y1, fz1);
     slab(frame, s, x0, y0, fz0, x0 + t, y1, fz1);
     slab(frame, s, x1 - t, y0, fz0, x1, y1, fz1);
-    slab(frame, s, cx - 0.03, y0, fz0, cx + 0.03, y1, fz1);
-    slab(frame, s, x0, 2.42, fz0, x1, 2.47, fz1);
+    // 两根竖梃把落地窗分成三扇，中间一扇最宽
+    for (const mx of [x0 + w * 0.27, x1 - w * 0.27]) slab(frame, s, mx - 0.025, y0, fz0, mx + 0.025, y1, fz1);
 
-    // 窗台
-    const sill = mat(0x8a6548, { roughness: 0.7 });
-    slab(sill, s, x0 - 0.15, y0 - 0.06, -0.3, x1 + 0.15, y0, 0.45);
-    slab(mat(0x6d4e37), s, x0 - 0.1, y0 - 0.2, 0, x1 + 0.1, y0 - 0.06, 0.08);
+    // 窗前的矮几：长条木板 + 两个木墩，上面摆着收音机和小物件
+    const bench = mat(0x8a6548, { roughness: 0.7 });
+    const benchLeg = mat(0x6d4e37);
+    slab(bench, s, x0 + 0.05, BENCH_Y - 0.05, 0.05, x1 - 0.05, BENCH_Y, 0.52);
+    slab(benchLeg, s, x0 + 0.2, 0, 0.1, x0 + 0.5, BENCH_Y - 0.05, 0.47);
+    slab(benchLeg, s, x1 - 0.5, 0, 0.1, x1 - 0.2, BENCH_Y - 0.05, 0.47);
+    // 坐垫：坐在这里看雨
+    const seat = mesh(new THREE.BoxGeometry(0.7, 0.07, 0.42), mat(0x2f6f6f, { roughness: 1 }), s, -0.3, BENCH_Y + 0.035, 0.29);
+    seat.rotation.y = 0.05;
   }
 
   buildLights() {
@@ -338,7 +347,7 @@ export class Room {
   buildRadio() {
     const g = new THREE.Group();
     g.userData.trackId = 'radio';
-    g.position.set(0.95, WINDOW.y0, 0.2);
+    g.position.set(1.05, BENCH_Y, 0.28);
     g.rotation.y = -0.22;
     this.scene.add(g);
     this.interactive.radio = g;
@@ -407,13 +416,13 @@ export class Room {
   buildChime() {
     const g = new THREE.Group();
     g.userData.trackId = 'chime';
-    const hang = new THREE.Vector3(-0.62, 3.02, 0.2);
+    const hang = new THREE.Vector3(-0.85, 2.82, 0.22);
     g.position.copy(hang);
     this.scene.add(g);
     this.interactive.chime = g;
 
-    // 墙上的挂钩
-    slab(mat(0x15161c), this.scene, hang.x - 0.015, 3.0, 0, hang.x + 0.015, 3.04, hang.z + 0.02);
+    // 天花板上的挂钩
+    slab(mat(0x15161c), this.scene, hang.x - 0.015, 3.26, hang.z - 0.015, hang.x + 0.015, 3.3, hang.z + 0.015);
 
     const metal = mat(0xb8c2d0, { metalness: 0.75, roughness: 0.28, flatShading: true });
     const lineMat = new THREE.LineBasicMaterial({ color: 0x0c0c10 });
@@ -424,6 +433,7 @@ export class Room {
 
     this.chimeSwing = new THREE.Group();
     g.add(this.chimeSwing);
+    line(new THREE.Vector3(0, 3.27 - hang.y, 0), new THREE.Vector3(0, 0, 0), this.chimeSwing);
     line(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -0.3, 0), this.chimeSwing);
     const cap = mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.03, 8), mat(0x6b4a33), this.chimeSwing, 0, -0.31, 0);
     cap.castShadow = true;
@@ -571,24 +581,24 @@ export class Room {
     const s = this.scene;
     // 窗台上的盆栽
     const pot = mat(0xb5654a);
-    mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.14, 7), pot, s, -0.95, WINDOW.y0 + 0.07, 0.22);
+    mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.14, 7), pot, s, -1.35, BENCH_Y + 0.07, 0.3);
     const leaf = mat(0x3f8f5a, { roughness: 0.8 });
     const leaf2 = mat(0x2f6f47, { roughness: 0.8 });
     for (let i = 0; i < 7; i++) {
       const a = (i / 7) * Math.PI * 2;
       const l = mesh(new THREE.ConeGeometry(0.035, 0.28 + this.rand() * 0.1, 4), i % 2 ? leaf : leaf2, s,
-        -0.95 + Math.cos(a) * 0.04, WINDOW.y0 + 0.28, 0.22 + Math.sin(a) * 0.04);
+        -1.35 + Math.cos(a) * 0.04, BENCH_Y + 0.28, 0.3 + Math.sin(a) * 0.04);
       l.rotation.set(Math.sin(a) * 0.45, 0, -Math.cos(a) * 0.45);
     }
     // 马克杯
     const mug = mat(0xe9e2d6);
-    mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.1, 8), mug, s, -0.35, WINDOW.y0 + 0.05, 0.28);
-    const handle = mesh(new THREE.TorusGeometry(0.025, 0.008, 4, 6), mug, s, -0.3, WINDOW.y0 + 0.055, 0.28);
+    mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.1, 8), mug, s, 0.25, BENCH_Y + 0.05, 0.36);
+    const handle = mesh(new THREE.TorusGeometry(0.025, 0.008, 4, 6), mug, s, 0.3, BENCH_Y + 0.055, 0.36);
     handle.rotation.y = 0;
     // 书堆
     const bookColors = [0x8c2f39, 0x2d4a7a, 0xd9a441];
     bookColors.forEach((c, i) => {
-      const b = mesh(new THREE.BoxGeometry(0.28, 0.04, 0.2), mat(c), s, 0.35, WINDOW.y0 + 0.02 + i * 0.04, 0.2);
+      const b = mesh(new THREE.BoxGeometry(0.28, 0.04, 0.2), mat(c), s, 0.55, BENCH_Y + 0.02 + i * 0.04, 0.3);
       b.rotation.y = (i - 1) * 0.12;
     });
 

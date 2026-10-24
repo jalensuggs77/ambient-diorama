@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { createSkyMaterial } from '../shaders/sky.js';
 import { createCityMaterial } from '../shaders/city.js';
 import { createRainStreaks } from '../shaders/rainStreaks.js';
+import { createStreetMaterial } from '../shaders/street.js';
 
 // 窗外世界：天空、赛博朋克城市、霓虹招牌、飞行汽车与雨丝。
 // 它被渲染到离屏纹理中，再由窗玻璃着色器折射显示。
@@ -165,6 +166,12 @@ export class Outdoor {
     this.signs = signs;
     this.scene.add(group);
 
+    this.streetMat = createStreetMaterial();
+    const street = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), this.streetMat);
+    street.rotation.x = -Math.PI / 2;
+    street.position.set(0, -60, -300);
+    this.scene.add(street);
+
     this.traffic = buildTraffic(rand);
     this.scene.add(this.traffic.mesh);
 
@@ -202,6 +209,14 @@ export class Outdoor {
     city.uRain.value = rain;
     city.uTime.value = t;
     city.uLightning.value = lightning;
+
+    const st = this.streetMat.uniforms;
+    st.uHorizon.value.copy(env.skyHorizon);
+    st.uNight.value = env.night;
+    st.uNeon.value = env.neon;
+    st.uRain.value = rain;
+    st.uTime.value = t;
+    st.uLightning.value = lightning;
 
     this.scene.fog.color.copy(env.skyHorizon);
     this.scene.fog.density = 0.006 + rain * 0.012;
